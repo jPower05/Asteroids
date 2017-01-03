@@ -1,0 +1,229 @@
+// ===============================================
+// @file   asteroids.cpp
+// @author jpower
+// @practical asteroids
+// @brief  Main file for PSP+GLFW asteroids game
+// ===============================================
+
+#include "asteroids.h"
+#include <cmath>
+Ship ship;
+BulletPool bullets(1000);
+AsteroidPool asteroids(20);
+PowerupPool powerups(5);
+
+
+int main() {
+
+	bool done = false;
+	
+	initGraphics("Asteroids");
+	
+	while (!done) {
+
+		switch (gameState) {
+
+			case(GAME_INTRO): {
+				changeGameState(GAME_START);
+				break;
+			}
+
+			case(GAME_START): {
+				changeGameState(LEVEL_START);
+				break;
+			}
+
+			case(LEVEL_START): {
+				ship.reset();
+				ship.position = Vector2f(ASPECT/2,0.5f);
+				ship.velocity = Vector2f::ZERO;
+				for(int k = 0; k < 3; k++){
+					spawnAsteroid(Vector2f(randomFloat(ASPECT - ASPECT + 0.2,ASPECT - 0.2),randomFloat(0.1,0.9)), 0);	
+				}
+				//createPowerup(Vector2f(randomFloat(ASPECT - ASPECT + 0.2,ASPECT - 0.2),randomFloat(0.1,0.9)), 0);
+				
+				changeGameState(LEVEL_PLAY);
+				break;
+			}
+
+			case(LEVEL_PLAY): {
+				update();
+				render();
+				getInput();
+				break;
+			}
+
+			case(LEVEL_OVER): {
+				changeGameState(GAME_OVER);
+				for(int k = 0; k < bullets.size();k++){
+					bullets.free(k);
+				}
+				for(int s = 0; s < asteroids.size();s++){
+					asteroids.free(s);
+				}
+				for(int k = 0; k < powerups.size();k++){
+					powerups.free(k);
+				}
+				changeGameState(LEVEL_START);
+				break;
+			}
+
+			case(GAME_OVER): {
+				changeGameState(GAME_QUIT);
+				break;
+			}
+
+			case(GAME_QUIT): {
+				done = true;
+				break;
+			}
+
+			default: {
+				printf ("Game state %d is not valid.\n", gameState);				
+			}
+		}
+	}
+	
+	deinitGraphics();
+}
+
+bool wrapGameObject(BaseGameObject & baseGameObject) {
+	//check if a game object is outside screen area and wrap it if needed.
+	return baseGameObject.position.x > ASPECT || baseGameObject.position.x < 0 || 
+	baseGameObject.position.y > 1 || baseGameObject.position.y < 0;
+}
+
+void update() {
+
+	// TODO - update ship
+	ship.update(dt);
+	
+	// TODO - update bullets
+	for(int k = 0; k < bullets.size();k++) bullets[k].update(dt);
+	
+	// TODO - check collisions bullets-asteroids
+	// check collisions bullets-asteroids
+	for(int k = 0; k < bullets.size();k++){
+		for(int s = 0; s < asteroids.size();s++){
+			if(checkForBulletAsteroidCollision(bullets[k].position,asteroids[s]) ){
+				printf("Collision occured, Bullet with Asteroid\n");
+				bullets[k].state = BaseGameObject::DEAD;
+				destroyAsteroid(asteroids[s],s);         
+			}
+		}
+	}
+
+	// TODO - check collisions ship-asteroids
+	for(int k = 0; k < asteroids.size();k++){
+		if (checkForPointInCircle(ship.position, asteroids[k].position , asteroids[k].radius * ASTEROID_SCALE)){
+			changeGameState(LEVEL_OVER);
+		}
+	}
+
+	// TODO - check collisions ship-powerups
+	//for(int k = 0; k < bullets.size();k++){
+	//	checkForShipPowerupCollision(ship.position, powerups[k].position);
+	//}
+	
+
+	
+	// TODO - update asteroids
+	// If asteroids hit (state=dead) then generate two (or better random) number of smaller asteroids
+	// new asteroids move off at random direction and rotation
+	for(int k = 0; k < asteroids.size();k++) asteroids[k].update(dt);
+	wrapGameObject(ship);
+	
+	//cull game objects
+	cullObjects();
+}
+
+void cullObjects(){
+	
+}
+
+
+
+
+
+bool checkForPointInCircle(const Vector2f point, const Vector2f centrePoint , const float radius){
+	//checks if a point is colliding with an asteroid. Gets length between asteroid centre 
+	//point and a point and checks if the length is shorter than the radius length. 
+	
+	double distance = sqr(point.x-centrePoint.x) + sqr(point.y - centrePoint.y);
+	if (distance < sqr(radius)){
+		std::cout<< "Collision" <<std::endl;
+		return true;
+	}
+	else return false;
+}
+
+//Checks collisions with bullets and asteroids. Crashes unless I use this method to check individual bullets 
+//asteroids instead of checking all with point in circle method. 
+bool checkForBulletAsteroidCollision(const Vector2f bulletPosition,const Asteroid & asteroid) {
+	if (checkForPointInCircle(bulletPosition,asteroid.position,asteroid.radius * ASTEROID_SCALE) &&(asteroid.invincible == false)){
+		return true;
+	}
+}
+
+bool checkForShipPowerupCollision(const Vector2f shipPosition, const Vector2f powerupPosition){
+	if (shipPosition == powerupPosition){
+		std::cout<<"Ship->Powerup" <<std::endl;
+	}
+}
+
+//Method that spawns an asteroid
+//Spawns at the position of previous asteroid
+//Type is always know when spawning 							(possibly can change) 
+void spawnAsteroid(const Vector2f position,const int type){
+	Asteroid & asteroid = asteroids.allocate();
+	asteroid.reset();
+	asteroid.position = position;
+	asteroid.type = static_cast<Asteroid::Type>(type);
+	asteroid.size = sizes[asteroid.type];
+}
+
+
+//Method to destroy an asteroid
+void destroyAsteroid(Asteroid & asteroid,const int index){
+	
+
+	//If it is tiny -> destroy asteroid. No more spawned
+	if(asteroid.type == Asteroid::TINY){
+		asteroids.free(index);										
+	
+	}
+	//For any other type spawn two of the next type down
+	//Set the current asteroid to dead
+	//Create a temp asteroid. Use this to set values as the original one has been destroyed.
+	//Spawn two asteroids with a smaller type than the previous at the same position 
+	else{
+
+		asteroid.state = Asteroid::DEAD;							
+		Asteroid tempAsteroid = asteroid;		
+		asteroids.free(index);
+		
+		for(int k = 0; k < 2; k++){
+			spawnAsteroid(tempAsteroid.position,tempAsteroid.type+1);	
+		}
+
+	}
+	
+}
+
+
+void createPowerup(const Vector2f position,const int type){
+	PowerUp & powerup = powerups.allocate();
+	powerup.reset();
+	powerup.position = position;
+	powerup.type = static_cast<PowerUp::Type>(type);
+	
+}
+	
+
+
+void destroyPowerup(PowerUp & powerup,const int index){
+	powerup.state = PowerUp::DEAD;								
+	powerups.free(index);
+}
+
+	
